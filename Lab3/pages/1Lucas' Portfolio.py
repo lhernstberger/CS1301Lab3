@@ -11,7 +11,7 @@ def about_me_section():
     st.write("Go Jackets!")
     st.write("---")
 about_me_section()
-
+https://github.com/lhernstberger/CS1301Lab3/967ef97359e5cf0d1c3c9795cc619ebca60dd222/Lab3/Images/LCLibrary.webp
 
 #sidebar links
 def links_section():
