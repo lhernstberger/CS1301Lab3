@@ -4,12 +4,13 @@ import pandas as pd
 #about me
 def about_me_section():
     st.header("About Me")
-    st.image(info3.profile_picture, width = 200)
+    st.image(https://github.com/lhernstberger/CS1301Lab3/blob/ab17a4fece27f64d37ce50f9a65d65c2b7162b2c/Lab3/Images/unknown.jpeg, width=200)
+        
+    #info3.profile_picture, width = 200)
     st.write(info3.about_me)
     st.write("Go Jackets!")
     st.write("---")
 about_me_section()
-
 
 
 #sidebar links
