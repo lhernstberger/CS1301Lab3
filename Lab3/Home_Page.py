@@ -21,9 +21,9 @@ st.subheader("Lucas Ernstberger, Pranav Dubagunta")
 st.write("""
 Welcome to our Streamlit Web Development Lab03 app! You can navigate between the pages using the sidebar to the left. The following pages are:
 
-1.
-2.
-3.
+1. **Home Page**: General Information
+2. **Lucas'Portfolio**: Information about one of the creators
+3. **Weather History**: Gives weather information based on inputs.
 4.
 
 """)
