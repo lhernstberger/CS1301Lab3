@@ -1,292 +1,146 @@
 import streamlit as st
+import datetime
 import requests
-import json
-import time
-from datetime import datetime
-import functools
+import google.generativeai as genai
 
-# --- Configuration & State ---
-# NOTE: Replace with your actual Gemini API key, or load from environment variable
-API_KEY = "" 
-MODEL_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent"
-MAX_RETRIES = 5
-DEFAULT_MODEL = "gemini-2.5-flash-preview-09-2025"
+st.set_page_config(page_title="Weather Chat Assistant", page_icon="🌤️")
 
+st.title("🌤️ Weather Chat Assistant")
+
+# Sidebar for API key and settings
+with st.sidebar:
+    st.header("Settings")
+    api_key = st.text_input("Gemini API Key:", type="password")
+    
+    if api_key:
+        genai.configure(api_key=api_key)
+        st.success("API Key configured!")
+        
+        # Show available models
+        if st.button("List Available Models"):
+            try:
+                st.write("Available models:")
+                for model in genai.list_models():
+                    if 'generateContent' in model.supported_generation_methods:
+                        st.write(f"- {model.name}")
+            except Exception as e:
+                st.error(f"Error listing models: {e}")
+    else:
+        st.info("Get your API key from https://makersuite.google.com/app/apikey")
+    
+    st.write("---")
+    
+    # Manual model name input
+    model_name = st.text_input("Model Name:", value="gemini-pro")
+    st.caption("Click 'List Available Models' above to see options")
+
+# Initialize session state
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [{"role": "model", "text": "Hello! I am a general-purpose assistant. You can ask me anything, or try asking for the **current weather or a 7-day forecast** for any city!"}]
+    st.session_state.messages = []
 
-# --- Tool Definitions for LLM Function Calling ---
+# Display chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
 
-def geocode_city(city):
-    """Fetches latitude and longitude for a city."""
-    url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}"
-    response = requests.get(url)
-    data = response.json()
-    
-    if "results" not in data or len(data["results"]) == 0:
-        return None, None
-    
-    # Select the most populated city match for better accuracy
-    best_match = max(data["results"], key=lambda c: c.get("population", 0))
-    return best_match["latitude"], best_match["longitude"]
-
-def get_current_and_forecast_weather(city: str, units: str = 'celsius') -> str:
-    """
-    Provides the current temperature and a summary of the 7-day weather forecast 
-    for a given city. Use this tool only when the user explicitly asks for the 
-    current or future weather or forecast for a specific location.
-    The 'units' parameter must be 'celsius' or 'fahrenheit'.
-    """
-    if units not in ['celsius', 'fahrenheit']:
-        return json.dumps({"error": "Invalid units. Must be 'celsius' or 'fahrenheit'."})
-
-    lat, lon = geocode_city(city)
-    if lat is None:
-        return json.dumps({"error": f"Could not find coordinates for city: {city}"})
-
-    # Construct the forecast API URL
-    temp_unit = "temperature_unit=fahrenheit" if units == "fahrenheit" else ""
-    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=temperature_2m_max,temperature_2m_min,weather_code&current=temperature_2m,weather_code,wind_speed_10m&timezone=auto&{temp_unit}"
-    
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Extract Current Data
-        current = data.get('current', {})
-        current_temp = current.get('temperature_2m')
-        current_code = current.get('weather_code')
-        wind_speed = current.get('wind_speed_10m')
-        
-        unit_symbol = "°F" if units == "fahrenheit" else "°C"
-
-        # Extract Forecast Data (first 7 days)
-        daily = data.get('daily', {})
-        forecasts = []
-        for i in range(min(7, len(daily.get('time', [])))):
-            forecasts.append({
-                "date": daily['time'][i],
-                "max_temp": daily['temperature_2m_max'][i],
-                "min_temp": daily['temperature_2m_min'][i],
-            })
-
-        # Return structured data for the LLM to synthesize
-        return json.dumps({
-            "city": city,
-            "units": unit_symbol,
-            "current_conditions": {
-                "temperature": current_temp,
-                "wind_speed": wind_speed,
-                "note": "Weather code is not provided for simplification."
-            },
-            "seven_day_forecast": forecasts
-        })
-
-    except Exception as e:
-        return json.dumps({"error": f"Error fetching weather data: {e}"})
-
-# Define the callable tool for the LLM to use
-AVAILABLE_TOOLS = {
-    "get_current_and_forecast_weather": get_current_and_forecast_weather,
-}
-
-# --- LLM Communication Logic ---
-
-def extract_sources(attributions):
-    """Converts the raw grounding attribution array into a simplified array of objects."""
-    if not attributions:
-        return []
-    sources = []
-    for attr in attributions:
-        if 'web' in attr and 'uri' in attr['web'] and 'title' in attr['web']:
-            sources.append({'uri': attr['web']['uri'], 'title': attr['web']['title']})
-    return sources
-
-def fetch_with_exponential_backoff(payload, url, api_key, max_retries=MAX_RETRIES):
-    """Implements exponential backoff for API retries using requests."""
+# Chat input
+if prompt := st.chat_input("Ask me about weather in any city..."):
     if not api_key:
-        raise ValueError("Gemini API_KEY is missing.")
-
-    full_url = f"{url}?key={api_key}"
-    headers = {'Content-Type': 'application/json'}
-
-    for i in range(max_retries):
-        try:
-            response = requests.post(full_url, headers=headers, data=json.dumps(payload), timeout=60)
-            
-            if response.ok:
-                return response.json()
-
-            if response.status_code == 429 or response.status_code >= 500:
-                print(f"Attempt {i + 1} failed with status {response.status_code}. Retrying...")
-                if i < max_retries - 1:
-                    delay = (2 ** i) + (time.time() % 1)
-                    time.sleep(delay)
-                continue
-            
-            response.raise_for_status()
-
-        except requests.exceptions.RequestException as e:
-            print(f"Request attempt {i + 1} failed: {e}. Retrying...")
-            if i < max_retries - 1:
-                delay = (2 ** i) + (time.time() % 1)
-                time.sleep(delay)
-            else:
-                raise
-
-    raise requests.exceptions.RequestException("API call failed after maximum retries.")
-
-def call_gemini_api(messages):
-    """Handles the main chat loop with tool calling logic."""
+        st.error("Please enter your Gemini API key in the sidebar.")
+        st.stop()
     
-    # 1. Define the tools for the LLM
-    # The search tool is used for general grounding/knowledge.
-    tools_config = [{"google_search": {}}] 
+    # Add user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.write(prompt)
     
-    # The weather tool is defined via its function structure
-    weather_tool_definition = {
-        "functionDeclarations": [
-            {
-                "name": "get_current_and_forecast_weather",
-                "description": get_current_and_forecast_weather.__doc__.strip(),
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "city": {"type": "STRING", "description": "The name of the city for the weather query (e.g., 'Paris')."},
-                        "units": {"type": "STRING", "description": "The temperature unit, either 'celsius' or 'fahrenheit'. Defaults to 'celsius' if not specified."}
-                    },
-                    "required": ["city"],
-                }
-            }
-        ]
-    }
-    
-    # Combine search and the function tool
-    all_tools = [tools_config[0], {"functionDeclarations": weather_tool_definition["functionDeclarations"]}]
-
-    # 2. Construct the payload
-    # Convert Streamlit messages history to the Gemini API format
-    contents = []
-    for message in messages:
-        if message["role"] == "user":
-            contents.append({"role": "user", "parts": [{"text": message["text"]}]})
-        elif message["role"] == "model":
-            # This logic might need refinement for complex tool calls in history
-            contents.append({"role": "model", "parts": [{"text": message["text"]}]})
-        elif message["role"] == "function_response":
-            contents.append({"role": "function", "parts": [{"functionResponse": message["functionResponse"]}]})
-        elif message["role"] == "tool_call":
-            contents.append({"role": "model", "parts": [{"functionCall": message["functionCall"]}]})
-
-    payload = {
-        "contents": contents,
-        "config": {
-            "tools": all_tools
-        }
-    }
-
-    # 3. Initial API Call (LLM decides text, search, or tool)
-    with st.spinner("Thinking..."):
-        try:
-            result = fetch_with_exponential_backoff(payload, MODEL_URL, API_KEY)
-        except Exception as e:
-            st.error(f"Error during API call: {e}")
-            return
-
-    candidate = result.get('candidates', [{}])[0]
-    
-    # 4. Check for Function Call
-    if 'functionCall' in candidate.get('content', {}).get('parts', [{}])[0]:
-        
-        function_call = candidate['content']['parts'][0]['functionCall']
-        func_name = function_call['name']
-        func_args = dict(function_call['args'])
-        
-        st.session_state["messages"].append({
-            "role": "tool_call",
-            "functionCall": function_call
-        })
-        
-        st.info(f"LLM decided to call tool: {func_name}({func_args})")
-        
-        # Execute the function locally
-        if func_name in AVAILABLE_TOOLS:
-            
-            with st.spinner(f"Executing {func_name}..."):
-                func_to_call = AVAILABLE_TOOLS[func_name]
-                function_output = func_to_call(**func_args)
-            
-            # Add function response to history
-            st.session_state["messages"].append({
-                "role": "function_response",
-                "functionResponse": {
-                    "name": func_name,
-                    "response": {"content": function_output}
-                }
-            })
-            
-            # Recursive call with function result to get final LLM response
-            with st.spinner("Synthesizing tool output..."):
-                final_response = call_gemini_api(st.session_state["messages"])
-                return final_response
-        else:
-            return "Error: Unknown tool requested by model."
-
-    # 5. Handle Text Response (with or without grounding)
-    text = candidate.get('content', {}).get('parts', [{}])[0].get('text', 'No response generated.')
-    sources = extract_sources(candidate.get('groundingMetadata', {}).get('groundingAttributions'))
-
-    response_data = {"text": text, "sources": sources}
-    st.session_state["messages"].append({"role": "model", "text": response_data})
-    return response_data
-
-# --- Streamlit Application Layout ---
-
-def main():
-    st.set_page_config(page_title="Gemini Chatbot with Weather Tool", layout="centered")
-    st.title("🤖 General Chatbot with Open-Meteo Tool")
-    
-    # Check for API Key
-    if not API_KEY:
-        st.warning("⚠️ Please enter your Gemini API Key in the Python file (`API_KEY = ...`) to enable the chatbot.")
-        return
-
-    # Display chat history
-    for message in st.session_state["messages"]:
-        if message["role"] == "user":
-            with st.chat_message("user"):
-                st.markdown(message["text"])
-        elif message["role"] == "model":
-            with st.chat_message("assistant"):
-                st.markdown(message["text"]["text"] if isinstance(message["text"], dict) else message["text"])
-                if isinstance(message["text"], dict) and message["text"]["sources"]:
-                    with st.expander("Grounded Sources (via Google Search)"):
-                        for source in message["text"]["sources"]:
-                            st.markdown(f"[{source['title']}]({source['uri']})")
-        # Tool call messages are displayed as info banners
-        elif message["role"] == "tool_call":
-            with st.chat_message("assistant"):
-                st.info(f"Tool Call: {message['functionCall']['name']}({dict(message['functionCall']['args'])})")
-        elif message["role"] == "function_response":
-            with st.chat_message("assistant"):
-                st.code(message['functionResponse']['response']['content'], language='json')
+    # Generate response
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            try:
+                # Create Gemini model with user-specified name
+                model = genai.GenerativeModel(model_name)
                 
-    # Handle user input
-    if prompt := st.chat_input("Ask a general question, or a weather query for a city..."):
-        
-        # Add user message to history
-        st.session_state["messages"].append({"role": "user", "text": prompt})
-        
-        # Display the user message immediately
-        with st.chat_message("user"):
-            st.markdown(prompt)
+                # Check if user is asking about weather
+                if any(word in prompt.lower() for word in ['weather', 'temperature', 'temp', 'hot', 'cold', 'warm', 'climate']):
+                    # Try to extract city
+                    extract_prompt = f"""From this question, extract ONLY the city name. Return just the city name, nothing else: "{prompt}" """
+                    
+                    extraction = model.generate_content(extract_prompt)
+                    city = extraction.text.strip()
+                    
+                    # Clean up the city name
+                    city = city.replace('"', '').replace("'", "").split(',')[0].split('.')[0].strip()
+                    
+                    if city and len(city) > 0 and len(city) < 50:
+                        try:
+                            # Fetch weather data
+                            url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}"
+                            response = requests.get(url, timeout=10)
+                            data = response.json()
+                            
+                            if "results" in data and len(data["results"]) > 0:
+                                result = data["results"][0]
+                                lat = result["latitude"]
+                                lon = result["longitude"]
+                                city_name = result["name"]
+                                
+                                # Last 7 days
+                                end_date = datetime.date.today()
+                                start_date = end_date - datetime.timedelta(days=7)
+                                
+                                # Fetch weather
+                                weather_url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date={start_date}&end_date={end_date}&daily=temperature_2m_max,temperature_2m_min,temperature_2m_mean&temperature_unit=fahrenheit"
+                                weather_response = requests.get(weather_url, timeout=10)
+                                weather_data = weather_response.json()
+                                
+                                if "daily" in weather_data:
+                                    temps = weather_data["daily"]["temperature_2m_mean"]
+                                    temp_max = weather_data["daily"]["temperature_2m_max"]
+                                    temp_min = weather_data["daily"]["temperature_2m_min"]
+                                    dates = weather_data["daily"]["time"]
+                                    
+                                    avg_temp = round(sum(temps) / len(temps), 1)
+                                    max_temp = max(temp_max)
+                                    min_temp = min(temp_min)
+                                    
+                                    # Create a summary
+                                    daily_summary = "\n".join([f"{dates[i]}: {temps[i]}F" for i in range(len(dates))])
+                                    
+                                    weather_context = f"""Weather data for {city_name} from {start_date} to {end_date}:
+- Average temperature: {avg_temp} degrees Fahrenheit
+- Highest temperature: {max_temp} degrees Fahrenheit  
+- Lowest temperature: {min_temp} degrees Fahrenheit
 
-        # Call the API and get the response
-        response_data = call_gemini_api(st.session_state["messages"])
-        
-        # Rerun to display the model's response and any tool execution steps
-        st.rerun()
+Daily temperatures:
+{daily_summary}
 
-if __name__ == "__main__":
-    main()
+User question: {prompt}
+
+Provide a helpful, friendly, conversational answer about this weather data."""
+                                    
+                                    response = model.generate_content(weather_context)
+                                    assistant_response = response.text
+                                else:
+                                    assistant_response = f"I found {city_name} but couldn't get weather data. Try asking about a different time period!"
+                            else:
+                                assistant_response = f"I couldn't find a city called '{city}'. Could you try a different city name?"
+                        
+                        except Exception as e:
+                            assistant_response = f"I had trouble getting weather data: {str(e)}"
+                    else:
+                        # General weather question without specific city
+                        response = model.generate_content(prompt)
+                        assistant_response = response.text
+                else:
+                    # General conversation
+                    response = model.generate_content(prompt)
+                    assistant_response = response.text
+                
+                st.write(assistant_response)
+                st.session_state.messages.append({"role": "assistant", "content": assistant_response})
+                
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                st.error(error_msg)
+                st.session_state.messages.append({"role": "assistant", "content": error_msg})
