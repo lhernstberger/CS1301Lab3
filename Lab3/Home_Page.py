@@ -1,7 +1,7 @@
 import streamlit as st
 
 # Title of App
-st.title("Web Development Lab03 Phases 1 and 2")
+st.title("Web Development Lab03")
 
 # Assignment Data 
 # TODO: Fill out your team number, section, and team members
