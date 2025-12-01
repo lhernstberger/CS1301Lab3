@@ -1,4 +1,4 @@
-#api_key="AIzaSyA8QmnpnQf84vh9-_Kuf0vSSQpxF4T0yXk")
+
 import streamlit as st
 from google import genai
 import requests
