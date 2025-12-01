@@ -1,5 +1,5 @@
 import streamlit as st
-import genai
+from google import genai
 import requests
 from datetime import datetime, timedelta
 import dateparser
