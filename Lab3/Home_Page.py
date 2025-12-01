@@ -25,5 +25,6 @@ st.write("1. **Home Page**: General Information")
 st.write("2. **Lucas'Portfolio**: Information about one of the creators")
 st.write("3. **Pranav's Portfolio**: Information about another of the creators")
 st.write("4. **Weather History**: Gives weather information based on inputs.")
-
+st.write("5. **Long-Range Weather Predictor**: Predicts temperature based on inputs.")
+st.write("6. **Weather Chatbot**: Gives answers to weather related queries.")
 
