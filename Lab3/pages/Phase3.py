@@ -9,7 +9,7 @@ st.write("Predict weather up to 1 year in the future using historical data and A
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
 except:
-    st.error("⚠️ Please add GEMINI_API_KEY to your secrets!")
+    st.error("Please add GEMINI_API_KEY to your secrets!")
     st.stop()
 city = st.text_input("Enter a city name:", "Atlanta")
 days_ahead = st.slider("Days in the future:", 1, 365, 30)
@@ -72,12 +72,12 @@ Your response:"""
     ai_data = ai_response.json()
     try:
         prediction = ai_data["candidates"][0]["content"]["parts"][0]["text"]
-        st.subheader(f"📅 Weather Prediction for {target_date}")
+        st.subheader(f" Weather Prediction for {target_date}")
         st.write(prediction)
         if "groundingMetadata" in ai_data["candidates"][0]:
             sources = ai_data["candidates"][0]["groundingMetadata"].get("groundingAttributions", [])
             if sources:
-                st.subheader("📚 Sources Used")
+                st.subheader("Sources Used")
                 for source in sources:
                     if "web" in source:
                         st.write(f"- [{source['web']['title']}]({source['web']['uri']})")
