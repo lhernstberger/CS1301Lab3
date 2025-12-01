@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import dateparser
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=api_key)
 except:
     st.error("⚠️ Please add GEMINI_API_KEY to your secrets!")
     st.stop()
