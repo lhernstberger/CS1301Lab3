@@ -9,7 +9,7 @@ try:
 except:
     st.error("⚠️ Please add GEMINI_API_KEY to your secrets!")
     st.stop()
-client = genai.Client(api_key="AIzaSyA8QmnpnQf84vh9-_Kuf0vSSQpxF4T0yXk")
+client = genai.Client(api_key)
 MODEL_NAME = "models/gemini-flash-latest"
 
 st.title("Weather Chatbot")
