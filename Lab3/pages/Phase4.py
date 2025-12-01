@@ -9,7 +9,7 @@ except:
     st.error("⚠️ Please add GEMINI_API_KEY to your secrets!")
     st.stop()
 client = genai.Client(api_key)
-MODEL_NAME = "models/gemini-flash-latest"
+MODEL_NAME = "models/gemini-2.5-flash"
 
 st.title("Weather Chatbot")
 st.markdown(
